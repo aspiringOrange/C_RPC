@@ -11,6 +11,9 @@
 #include "address.h" // Address 类
 
 namespace C_RPC{
+/**
+  * @brief TCPServer类，实现epoll IO多路复用
+  */
 class TCPServer {
 public:
     TCPServer(const std::string& ip, uint16_t port) : m_listenSocket(), m_ip(ip), m_port(port) {}
@@ -22,7 +25,6 @@ public:
     bool start();
 
     void run();
-
 
     Socket m_listenSocket; // 监听套接字
     std::string m_ip; // 服务器 IP 地址

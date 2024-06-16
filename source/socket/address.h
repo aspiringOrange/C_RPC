@@ -1,11 +1,16 @@
 #ifndef _ADDRESS_H_
 #define _ADDRESS_H_
+
 #include <vector>
 #include <cstring>
 #include <arpa/inet.h> 
 #include <ifaddrs.h> 
 #include <netinet/in.h> 
 namespace C_RPC{
+
+/**
+  * @brief 地址类,封装了sockaddr_in
+  */
 class Address{
 public:
     Address() {
@@ -13,6 +18,9 @@ public:
         m_address.sin_family = AF_INET;
     }
 
+    /**
+     * @brief 构造函数
+     */
     Address(const std::string &ip, uint16_t port,int family = AF_INET) {
         memset(&m_address, 0, sizeof(m_address));
         m_address.sin_family = family;
@@ -20,6 +28,10 @@ public:
         m_address.sin_port = htons(port);
     }
 
+    /**
+     * @brief 获取本地网卡地址
+     * @param[out] addresses 本地地址
+     */
     static void getLocalAddress(std::vector<sockaddr_in>& addresses,int32_t family = AF_INET) {
         struct ifaddrs *ifap, *ifa;
         struct sockaddr_in *sa;
@@ -70,6 +82,6 @@ private:
     sockaddr_in m_address;
 };
 
-}
+}//namespace C_RPC
 
-#endif
+#endif //_ADDRESS_H_

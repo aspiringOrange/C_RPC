@@ -6,7 +6,9 @@
 #include <map>
 #include "spdlog/sinks/basic_file_sink.h"
 namespace C_RPC{
-
+/**
+  * @brief spd日志
+  */
 class LogManager {
 public:
     std::shared_ptr<spdlog::logger> getLogger(const std::string &name){

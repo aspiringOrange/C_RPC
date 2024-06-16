@@ -7,11 +7,19 @@
 #include <queue>
 #include "coroutine.h"
 #include "coroutinesync.h"
+
 namespace C_RPC {
 
+/**
+ * @brief 协程通信消息队列
+ */
 template<typename T>
 class CoroutineChannal{
 public:
+    /**
+     * @brief 协程通信消息队列构造函数
+     * @param capacity 队列最大长度
+     */
     CoroutineChannal(size_t capacity)
             : m_is_close(false)
             , m_capacity(capacity){
@@ -20,13 +28,15 @@ public:
     ~CoroutineChannal() {
         close();
     }
+
     /**
      * @brief 发送数据到 Channel
-     * @param[in] t 发送的数据
+     * @param t 发送的数据
      * @return 返回调用结果
      */
     bool push(const T& t) {
         m_mutex.lock();
+        //如果消息队列关闭
         if (m_is_close) {
             m_mutex.unlock();
             return false;
@@ -39,19 +49,22 @@ public:
                 return false;
             }
         }
+        //写入数据
         m_queue.push(t);
         m_mutex.unlock();
-        // 唤醒m_popCv
+        // 唤醒m_popCv，唤醒需要接受消息的协程
         m_popCv.notify();
         return true;
     }
+
     /**
      * @brief 从 Channel 读取数据
-     * @param[in] t 读取到 t
+     * @param t 读取到 t
      * @return 返回调用结果
      */
     bool pop(T& t) {
         m_mutex.lock();
+        //如果消息队列关闭
         if (m_is_close) {
             m_mutex.unlock();
             return false;
@@ -64,10 +77,11 @@ public:
                 return false;
             }
         }
+        //读出数据
         t = m_queue.front();
         m_queue.pop();
         m_mutex.unlock();
-        // 唤醒 m_pushCv
+        // 唤醒 m_pushCv，唤醒需要写入数据的协程
         m_pushCv.notify();
         return true;
     }
@@ -81,6 +95,7 @@ public:
         push(t);
         return *this;
     }
+
     /**
      * @brief 关闭 Channel
      */
@@ -97,10 +112,16 @@ public:
         m_mutex.unlock();
     }
 
+    /**
+     * @brief 返回队列容量
+     */
     size_t capacity() const {
         return m_capacity;
     }
 
+    /**
+     * @brief 返回队列当前长度
+     */
     size_t size() {
         m_mutex.lock();
         size_t size = m_queue.size();
@@ -113,7 +134,7 @@ public:
     }
 private:
     bool m_is_close;
-    // Channel 缓冲区大小
+    // Channel 消息队列大小
     size_t m_capacity;
     // 协程锁和协程条件变量配合使用保护消息队列
     CoroutineMutex m_mutex;
@@ -128,6 +149,6 @@ private:
 
 
 
-}
+}//namespace C_RPC 
 
-#endif 
+#endif //_COROUTINE_CHANNAL_H_

@@ -10,7 +10,6 @@ void RpcCLient::start(){
     message.encode(s);
 
     // 向 send 协程的 Channel 发送消息
-    
     // 添加注册中心 RpcSession
     std::shared_ptr<RpcSession> register_session(new RpcSession);
     register_session->connect(Address(register_ip,register_port));
@@ -26,7 +25,7 @@ void RpcCLient::start(){
     });
 
     Message receive_message;
-    // 等待 response，Channel内部会挂起协程，如果有消息到达或者被关闭则会被唤醒
+    //Channel内部会挂起协程，如果有消息到达或者被关闭则会被唤醒
     (*recv_channal) >> receive_message;
 
     if(timer){
@@ -45,7 +44,6 @@ void RpcCLient::start(){
         logger->info(fmt::format("responce accessed:{}",receive_message.toString()));  
         //解析函数名称加地址
         std::shared_ptr<Serializer> s =receive_message.getSerializer();
-        
         while(!s->isReadEnd()){
             std::string f_name,f_ip;
             uint16_t f_port;

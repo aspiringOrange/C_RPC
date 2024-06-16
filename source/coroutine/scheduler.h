@@ -1,5 +1,6 @@
 #ifndef _SCHEDULER_H_
 #define _SCHEDULER_H_
+
 #include <atomic>
 #include <memory>
 #include <string>
@@ -11,12 +12,14 @@
 #include "config.h"
 #include "timer.h"
 namespace C_RPC{
-
+/**
+ * @brief 协程调度器，每个调度线程的主协程从任务队列取出任务执行，当前任务执行完后返回主协程
+ */
 class Scheduler{
 public:
     /**
      * @brief 构造函数
-     * @param[in] threads 线程数量
+     * @param threads 线程数量
      */
     Scheduler(size_t threads = Scheduler_threads);
 
@@ -32,26 +35,37 @@ public:
      */
     void stop();
 
-
+    /**
+     * @brief 添加一个协程至协程队列
+     */
     bool addTask(Coroutine&& coroutine);
 
     bool addTask(std::shared_ptr<Coroutine>&& coroutine);
 
+    /**
+     * @brief 添加一个任务至协程队列
+     */
     bool addTask(std::function<void()> &&cb);
 
+    /**
+     * @brief 获取当前调度器
+     */
     static Scheduler* GetInstance();
 
+    /**
+     * @brief 获取定时器
+     */
     static Timer* GetTimer();
 
 private:
 
     /**
-     * @brief 协程调度函数
+     * @brief 主协程执行的协程调度函数
      */
     void run();
 
     /**
-     * @brief 协程无任务可调度时从timer处取任务
+     * @brief 主协程从timer处取已经到达定时时间的任务
      */
     void getTaskFromTimer();
 
@@ -71,9 +85,9 @@ private:
     std::atomic<size_t> m_runningThreads{0};
     //调度器是否停止
     bool m_stop = true;
-    //Coroutine id
-    std::atomic<uint64_t> m_coroutine_id{0};
+    //定时器
     std::shared_ptr<Timer> m_timer;
 };
-}
-#endif 
+
+}//namespace C_RPC
+#endif //_SCHEDULER_H_

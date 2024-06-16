@@ -1,78 +1,67 @@
 #include "rpc_server.h"
 
 namespace C_RPC{
+//debug 日志
 static std::shared_ptr<spdlog::logger> logger = LOG_NAME("rpc_server");
+
 void RpcServer::start(){
     TCPServer::start();
-
+    //将本地提供的RPC服务注册到注册中心
     Message message(C_RPC::Message::RPC_SERVER_INIT);
     Serializer s;
     for(auto &i:m_funcs){
-        //先写文函数名称
         std::string f_name = i.first;
         s<<f_name;
-        //再写函数地址
         s<<m_ip<<m_port;
     }
     message.encode(s);
-
-    // 向 send 协程的 Channel 发送消息
-    
-    // 添加注册中心 RpcSession
+    // 连接到注册中心，发送数据
     std::shared_ptr<RpcSession> register_session(new RpcSession);
     register_session->connect(Address(register_ip,register_port));
     m_connection_pool.addRegister("defalut register", register_session);
     std::shared_ptr<CoroutineChannal<Message>> recv_channal = register_session->send(message);
-
+    //超时定时器
     bool timeout = false;
     std::shared_ptr<C_RPC::TimeEvent> timer = C_RPC::Scheduler::GetTimer()->addTimeEvent(m_timeout,[&timer,&recv_channal,&timeout](){
         timeout = true;
         recv_channal->close();
     });
-
+    //接受响应
     Message receive_message;
-    // 等待 response，Channel内部会挂起协程，如果有消息到达或者被关闭则会被唤醒
+    //Channel内部会挂起协程，如果有消息到达或者被关闭则会被唤醒
     (*recv_channal) >> receive_message;
-
     if(timer){
         timer->cancel();
     }
-
-
     // 删除序列号与 Channel 的映射
     register_session->earseResponseChannal(message.seq);
-
     if (timeout) {
         logger->info(fmt::format("Failed to connet register:time_out"));  
     }
     else{
         //解析返回值
         logger->info(fmt::format("init_responce accessed:{}",receive_message.toString()));  
-        
     }
     //心跳
-    
     Scheduler::GetTimer()->addTimeEvent(1000,[=](){
         Message heart_message(C_RPC::Message::HEART_BEAT);
         logger->info(fmt::format("HEART_BEAT to reg"));  
-        std::cout<<"message seq="<<heart_message.seq<<std::endl;
         Serializer temp;
         heart_message.encode(temp);
         register_session->send(heart_message);
         register_session->earseResponseChannal(heart_message.seq);
     },true);
-
 }
     
 void RpcServer::run(){
     const int MAX_EVENTS = 1024; // 最大事件数
     epoll_event events[MAX_EVENTS]; // 用于存储事件的数组
 
-    while (true) { // 主循环
-        int eventCount = epoll_wait(m_epollFD, events, MAX_EVENTS, -1); // 等待事件发生
-        if (eventCount == -1) { // 检查 epoll_wait 是否成功
-            std::cerr << "epoll_wait error: " << strerror(errno) << "\n"; // 打印错误信息
-            break; // 退出循环
+    while (true) { 
+        int eventCount = epoll_wait(m_epollFD, events, MAX_EVENTS, -1);
+        if (eventCount == -1) {
+            std::cerr << "epoll_wait error: " << strerror(errno) << "\n";
+            break; 
         }
 
         for (int i = 0; i < eventCount; ++i) { // 遍历发生的事件
@@ -141,49 +130,40 @@ void RpcServer::handleCLientRequest(Message &receive_message,std::shared_ptr<Soc
         
     std::string f_name;
     (*s)>>f_name;
-    std::cout<<"call fname:"<<f_name<<std::endl;
     logger->info(fmt::format("call fname:{}",f_name));  
     Serializer returns;
     call(f_name,*s,returns);
 
     Message message(C_RPC::Message::RPC_RESPONSE);
     message.seq = receive_message.seq;
-    // Serializer res;
-    // std::string temp = returns.toString();
-    // res<<temp;
     message.encode(returns);
     socket->send(message);
 }
 
 void RpcServer::registerFunc2Reg(const std::string& name){ 
-
 Redirect:
-
+    //提交函数信息到注册中心
     std::shared_ptr<RpcSession> registerSession = m_connection_pool.getAllRegister()[0];
     Message message(C_RPC::Message::RPC_SERVICE_REGISTER);
     Serializer s;
-    //先写文函数名称
     std::string f_name = name;
-    s<<f_name;
-    s<<m_ip<<m_port;
+    s<<f_name<<m_ip<<m_port;
     message.encode(s);
     std::shared_ptr<CoroutineChannal<Message>> recv_channal = registerSession->send(message);
-
+    //超时处理
     bool timeout = false;
     std::shared_ptr<C_RPC::TimeEvent> timer = C_RPC::Scheduler::GetTimer()->addTimeEvent(m_timeout,[&timer,&recv_channal,&timeout](){
         timeout = true;
         recv_channal->close();
     });
-
     Message receive_message;
-    // 等待 response，Channel内部会挂起协程，如果有消息到达或者被关闭则会被唤醒
+    //Channel内部会挂起协程，如果有消息到达或者被关闭则会被唤醒
     (*recv_channal) >> receive_message;
     if(timer){
         timer->cancel();
     }
     // 删除序列号与 Channel 的映射
     registerSession->earseResponseChannal(message.seq);
-
     if (timeout) {
         logger->info(fmt::format("Failed to registerFunc2Reg:time_out"));  
     }
@@ -207,26 +187,22 @@ Redirect:
         }
         logger->info(fmt::format("registerFunc success"));  
     }
-
 }
 
 void RpcServer::deleteFunc2Reg(const std::string& name){
     std::shared_ptr<RpcSession> registerSession = m_connection_pool.getAllRegister()[0];
     Message message(C_RPC::Message::RPC_SERVICE_DELETE);
     Serializer s;
-    //先写文函数名称
     std::string f_name = name;
     s<<f_name;
     s<<m_ip<<m_port;
     message.encode(s);
     std::shared_ptr<CoroutineChannal<Message>> recv_channal = registerSession->send(message);
-
     bool timeout = false;
     std::shared_ptr<C_RPC::TimeEvent> timer = C_RPC::Scheduler::GetTimer()->addTimeEvent(m_timeout,[&timer,&recv_channal,&timeout](){
         timeout = true;
         recv_channal->close();
     });
-
     Message receive_message;
     // 等待 response，Channel内部会挂起协程，如果有消息到达或者被关闭则会被唤醒
     (*recv_channal) >> receive_message;
@@ -237,14 +213,13 @@ void RpcServer::deleteFunc2Reg(const std::string& name){
     registerSession->earseResponseChannal(message.seq);
 
     if (timeout) {
-        logger->info(fmt::format("Failed to registerFunc2Reg:time_out"));  
+        logger->info(fmt::format("Failed to deleteFunc2Reg:time_out"));  
     }
     else{
         //解析返回值
-        logger->info(fmt::format("registerFunc_responce accessed:{}",receive_message.toString()));  
+        logger->info(fmt::format("deleteFunc2Reg_responce accessed:{}",receive_message.toString()));  
         //解析函数名称加地址
         std::shared_ptr<Serializer> s =receive_message.getSerializer();
-        
         while(!s->isReadEnd()){
         }
     }
@@ -261,7 +236,6 @@ bool RpcServer::RedirectRegister(std::string ip, uint16_t port){
     register_session->connect(Address(ip,port));
     m_connection_pool.addRegister("raft register", register_session);
     std::shared_ptr<CoroutineChannal<Message>> recv_channal = register_session->send(message);
-
     bool timeout = false;
     std::shared_ptr<C_RPC::TimeEvent> timer = C_RPC::Scheduler::GetTimer()->addTimeEvent(m_timeout,[&timer,&recv_channal,&timeout](){
         timeout = true;
@@ -269,14 +243,11 @@ bool RpcServer::RedirectRegister(std::string ip, uint16_t port){
     });
 
     Message receive_message;
-    // 等待 response，Channel内部会挂起协程，如果有消息到达或者被关闭则会被唤醒
+    //Channel内部会挂起协程，如果有消息到达或者被关闭则会被唤醒
     (*recv_channal) >> receive_message;
-
     if(timer){
         timer->cancel();
     }
-
-
     // 删除序列号与 Channel 的映射
     register_session->earseResponseChannal(message.seq);
 
@@ -288,9 +259,6 @@ bool RpcServer::RedirectRegister(std::string ip, uint16_t port){
         logger->info(fmt::format("RedirectRegister accessed:{}",receive_message.toString()));  
         //解析函数名称加地址
         std::shared_ptr<Serializer> s =receive_message.getSerializer();
-        
-        while(!s->isReadEnd()){
-        }
         return true;
     }
 }

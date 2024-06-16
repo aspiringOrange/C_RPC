@@ -23,10 +23,14 @@ enum RaftState {
     Leader      // 领导者
 };
 
-
+/**
+ * @brief Raft节点
+ */
 class RaftNode : public TCPServer {
 public:
-
+    /**
+    * @brief Raft节点初始化
+    */
     RaftNode(uint64_t id, std::vector<ip_port> nodes = Nodes);
 
     ~RaftNode(){};
@@ -35,31 +39,35 @@ public:
 
     void stop();
 
-    bool isLeader();
-
-    RaftState getState();
-
     uint64_t getLeaderId() const { return m_leaderId;}
-
 
     uint64_t getNodeId() const { return m_id;}
     
 private:
-
-    void broadcastLog();
-
+    /**
+    * @brief 开始选举
+    */
     void startElection();
-  
+    /**
+    * @brief 立即发送一轮心跳
+    */
     void broadcastHeartbeat();
-
+    /**
+    * @brief RPC投票
+    */
     RaftVoteRets raftVote(RaftVoteParams params);
-
+    /**
+    * @brief RPC同步日志
+    */
     AppendEntriesRets appendEntries(AppendEntriesParams params);
-
+    /**
+    * @brief 同步日志
+    */
     void replicateLog(uint64_t nodeId);
-
+    /**
+    * @brief leader开始同步日志
+    */
     void startReplicateLog();
-
 
     uint64_t genRandom(uint64_t left = 500 , uint64_t right = 1500){
         std::random_device rd;
@@ -86,16 +94,17 @@ private:
     //远程节点
     std::map<uint64_t, std::shared_ptr<RpcSession>> m_remote_nodes;
     std::vector<ip_port> m_nodes;
-    //下一个发送的日志的index
+    //follower节点 下一个发送的日志的index
     std::map<uint64_t,uint64_t> m_nextIndexs;
-    //已经提交的最大的日志index
+    //follower节点 已经提交的最大的日志index
     std::map<uint64_t,uint64_t> m_matchIndexs;
-
+    //选举超时计时器
     std::shared_ptr<TimeEvent> m_electionTimer;
+    //心跳发送计时器
     std::shared_ptr<TimeEvent> m_heartbeatTimer;
-
+    //raft日志
     RaftLogger m_raft_logger;
-
+    //debug日志
     std::shared_ptr<spdlog::logger> logger;
 
 //register

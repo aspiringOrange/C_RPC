@@ -4,7 +4,6 @@
 #include "socket/socket.h"
 #include "rpc_session.h"
 #include <map>
-//#include <multimap>
 #include <vector>
 #include <memory>
 #include <string>
@@ -12,7 +11,9 @@
 #include <random>
 #include "util/utils.h"
 namespace C_RPC {
-
+/**
+  * @brief RPC连接池
+  */
 class ConnectionPool {
 public:
     ConnectionPool();

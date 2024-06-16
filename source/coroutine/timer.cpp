@@ -1,10 +1,12 @@
 
 #include "timer.h"
 namespace C_RPC{
+//debug 日志
 static std::shared_ptr<spdlog::logger> logger = LOG_NAME("timer");
 
 TimeEvent::TimeEvent(uint64_t interval, std::function<void()> cb, Timer* timerptr, bool is_repeated)
     : m_interval(interval), m_is_repeated(is_repeated), m_cb(cb),timer(timerptr) {
+    //事件发生时间=当前时间+时间间隔
     m_occur_time = GetCurrentMS() + m_interval;  	
     logger->info(fmt::format("timeevent will occur at{}",m_occur_time));   
 }
@@ -15,9 +17,11 @@ std::shared_ptr<TimeEvent> TimeEvent::getThis() {
 
 bool TimeEvent::resetTime() {
     std::lock_guard<std::mutex> lock(timer->m_mutex);
+    //从定时器里找到当前定时器事件
     auto it = timer->m_timeEvents.find(getThis());
     if(it!=timer->m_timeEvents.end()){  
         timer->m_timeEvents.erase(it);
+        //修改事件发生时间
         m_occur_time = GetCurrentMS() + m_interval; 
         //logger->info(fmt::format("reset time:timeevent will occur at{}",m_occur_time));    	
         m_is_cancled = false;
@@ -29,9 +33,11 @@ bool TimeEvent::resetTime() {
 
 bool TimeEvent::resetTime(uint64_t interval) {
     std::lock_guard<std::mutex> lock(timer->m_mutex);
+    //从定时器里找到当前定时器事件
     auto it = timer->m_timeEvents.find(getThis());
     if(it!=timer->m_timeEvents.end()){
         timer->m_timeEvents.erase(it);
+        //修改事件发生时间
         m_interval = interval;
         m_occur_time = GetCurrentMS() + m_interval;  	
         m_is_cancled = false;
@@ -68,8 +74,10 @@ void TimeEvent::setRepeated () {
 }
   
 std::shared_ptr<TimeEvent> Timer::addTimeEvent(uint64_t interval, std::function<void()> cb, bool is_repeated){
+    //创建一个新的定时器事件
     std::shared_ptr<TimeEvent> timeEvent(new TimeEvent(interval, cb, this,is_repeated));
     std::lock_guard<std::mutex> lock(m_mutex);
+    //加入定时器事件集合
     m_timeEvents.insert(timeEvent);  
     logger->info(fmt::format("addTimeEvent:m_timeEvents.size()={}",m_timeEvents.size()));   
     return timeEvent;
@@ -81,6 +89,7 @@ uint64_t Timer::getLatestTEOccur() {
         return ~0ull;
     }
     std::shared_ptr<TimeEvent> timeEvent = nullptr;
+    //找到最近的定时器事件
     for(std::set<std::shared_ptr<TimeEvent>>::iterator it=m_timeEvents.begin();it!=m_timeEvents.end();++it){
         if((*it)->m_is_cancled!=true){
             timeEvent=*it;
@@ -89,6 +98,7 @@ uint64_t Timer::getLatestTEOccur() {
     }
     if(timeEvent==nullptr)
         return  ~0ull; 
+    //返回距离该事件发生还有多久
     uint64_t now = GetCurrentMS();
     if(now >= timeEvent->m_occur_time){
         return 0;
@@ -98,7 +108,7 @@ uint64_t Timer::getLatestTEOccur() {
 }
 
 void Timer::getExpiredcbs(std::vector<std::function<void()>>& cbs) {
-
+    //获取当前时间
     uint64_t now = GetCurrentMS();
     std::vector<std::shared_ptr<TimeEvent>> expired;
 
@@ -107,6 +117,7 @@ void Timer::getExpiredcbs(std::vector<std::function<void()>>& cbs) {
         return;
     }
     //logger->info(fmt::format("getExpiredcbs:m_timeEvents.size()={}",m_timeEvents.size()));   
+    //找到所有发生时间小于当前时间的定时器事件
     std::set<std::shared_ptr<TimeEvent>>::iterator it;
     for(it=m_timeEvents.begin();it!=m_timeEvents.end();++it){
         if((*it)->m_occur_time<=now){ 
@@ -120,7 +131,7 @@ void Timer::getExpiredcbs(std::vector<std::function<void()>>& cbs) {
     }
     expired.insert(expired.begin(), m_timeEvents.begin(), it);
     m_timeEvents.erase(m_timeEvents.begin(), it);
-
+    //如果这些定时器事件是循环的，重新加入定时器事件集合
     for(auto &i : expired){
         if(i->m_is_repeated&&i->m_is_cancled!=true){
             i->m_occur_time = now + i->m_interval;
@@ -129,6 +140,7 @@ void Timer::getExpiredcbs(std::vector<std::function<void()>>& cbs) {
     }
 
 }
-}
+
+}//namespace C_RPC 
 
 

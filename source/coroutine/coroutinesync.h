@@ -1,5 +1,5 @@
-#ifndef _COROUTINE_MUTEX_H_
-#define _COROUTINE_MUTEX_H_
+#ifndef _COROUTINE_SYNC_H_
+#define _COROUTINE_SYNC_H_
 #include <semaphore.h>
 #include <pthread.h>
 #include <atomic>
@@ -89,6 +89,6 @@ private:
     SpinLock m_mutex;
 };
 
-}
+}//namespace C_RPC 
 
-#endif 
+#endif //_COROUTINE_SYNC_H_

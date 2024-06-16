@@ -125,6 +125,7 @@ std::vector<std::shared_ptr<ip_port>> ConnectionPool::getAllAddress(const std::s
 // 根据函数名返回已经建立的服务器连接
 std::vector<std::shared_ptr<RpcSession>> ConnectionPool::getAllRpcSession(const std::string& funcName) {
     std::vector<std::shared_ptr<RpcSession>> sessions;
+    //根据函数名查找所有的已建立连接
     auto range = m_servers.equal_range(funcName);
     for (auto it = range.first; it != range.second; ++it) {
         sessions.push_back(it->second);
@@ -148,7 +149,7 @@ std::vector<std::shared_ptr<RpcSession>> ConnectionPool::getAllRpcSession(const 
 
     if(!sessions.empty())
         return sessions;
-
+    //新建连接
     std::shared_ptr<RpcSession> newsession (new RpcSession);
     Address address(addresses[0]->m_ip,addresses[0]->m_port);
     if (newsession->connect(address)) {

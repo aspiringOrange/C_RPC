@@ -150,13 +150,7 @@ namespace C_RPC{
             std::multimap<std::string, std::shared_ptr<Socket>> &m_subscribes;
             std::shared_ptr<spdlog::logger> logger;
         };
-
-
-
-
     }
 }
 
-
-
-#endif
+#endif //_RAFT_LOGGER_H_

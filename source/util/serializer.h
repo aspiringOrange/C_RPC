@@ -18,7 +18,9 @@
 #include "raft/raft_config.h"
 namespace C_RPC {
 
-
+/**
+  * @brief Buffer类,写入数据从主机序转化为网络序，读出从网络序转化为主机序
+  */
 class Buffer {
 public:
     Buffer() : m_position(0) {}
@@ -193,25 +195,17 @@ private:
     size_t m_position;
 };
 
-// 前向声明友元函数
-// template<typename... Types>
-// class Serializer;
-
-// template<typename... Types>
-// Serializer& operator<<(Serializer& serializer, const std::tuple<Types...>& t);
-
-// template<typename... Types>
-// Serializer& operator>>(Serializer& serializer, std::tuple<Types...>& t);
+/**
+  * @brief 处理Tuple类型的辅助结构体
+  */
 template<std::size_t Index, typename... Types>
 struct TupleSerializer;
 
+/**
+  * @brief Serializer类,写入数据从主机序转化为网络序，读出从网络序转化为主机序，实现了对于基本数据类型以及stl容器的序列化与反序列化
+  */
 class Serializer {
 public:
-    // template<typename... Types>
-    // friend Serializer& operator<<(Serializer& serializer, const std::tuple<Types...>& t);
-
-    // template<typename... Types>
-    // friend Serializer& operator>>(Serializer& serializer, std::tuple<Types...>& t);
 
     void write(const char* data, size_t len) {
         m_buffer.write(data, len);
@@ -641,7 +635,7 @@ private:
     Buffer m_buffer;
 };
 
-// TupleSerializer 辅助模板结构
+//处理Tuple类型的辅助结构体,在编译期确定序列化规则
 template<std::size_t Index, typename... Types>
 struct TupleSerializer {
     static void serialize(Serializer& serializer, const std::tuple<Types...>& t) {
@@ -660,5 +654,5 @@ struct TupleSerializer {
 };
 
 
-}
-#endif 
+}//namespace C_RPC
+#endif // _SERIALIZER_H_

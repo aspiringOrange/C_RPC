@@ -6,8 +6,13 @@
 #include <sys/time.h>
 
 namespace C_RPC{
+/**
+  * @brief 获得当前时间
+  */
 uint64_t GetCurrentMS();
-
+/**
+  * @brief 协程sleep，避免线程被阻塞
+  */
 void coroutine_sleep(uint64_t ms);
 
 

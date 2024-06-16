@@ -3,7 +3,9 @@
 
 #include <memory>
 namespace C_RPC{
-
+/**
+  * @brief 单例模式
+  */
 template<typename T>
 class Singleton{
 public:
@@ -23,5 +25,5 @@ public:
     }
 };
 
-}
-#endif
+}// namespace C_RPC
+#endif //_SINGLETON_H_

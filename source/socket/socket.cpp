@@ -2,6 +2,7 @@
 #include "config.h"
 
 namespace C_RPC{
+//debug日志
 static std::shared_ptr<spdlog::logger> logger = LOG_NAME("socket");
 
 bool Socket::create( int32_t family, int32_t type ) {
@@ -52,6 +53,7 @@ bool Socket::setReceiveTimeout(int32_t seconds) {
 bool Socket::connect(const Address& address) {
     sockaddr_in sockaddress = address.getSockAddr();
     size_t n = ::connect(m_sockfd, (sockaddr *)&sockaddress, sizeof(sockaddress));
+    //非阻塞socket
     while(errno == EINTR && n <0){
         n = ::connect(m_sockfd, (sockaddr *)&sockaddress, sizeof(address.getSockAddr()));
     }
@@ -62,14 +64,16 @@ bool Socket::connect(const Address& address) {
         }
     }
     
+    //非阻塞socket，不知道连接是否已经建立，采用epoll判断
     epoll_event event;
     event.data.fd = m_sockfd;
     event.events = EPOLLOUT | EPOLLIN | EPOLLET;
-
-    int32_t epollFd = epoll_create1(0); // 创建 epoll 实例
+    // 创建 epoll 实例
+    int32_t epollFd = epoll_create1(0);
     epoll_ctl(epollFd, EPOLL_CTL_ADD, m_sockfd, &event);
     epoll_event events[1];
-    int timeoutMs = 10000;
+    int timeoutMs = 1000;
+    //查看监听的socket是否有可写事件
     int32_t nfds = epoll_wait(epollFd, events, 1, timeoutMs);
     ::close(epollFd);
     if (nfds == 0) {
@@ -79,7 +83,7 @@ bool Socket::connect(const Address& address) {
 
 
     if (events[0].events & EPOLLERR || events[0].events & EPOLLHUP) {
-        logger->info(fmt::format("Failed to connect2"));
+        logger->info(fmt::format("Failed to connect"));
         return false;
     }
     {
@@ -203,19 +207,21 @@ ssize_t Socket::receive(void* buffer, size_t length) {
     ssize_t totalBytesReceived = 0;
     while (totalBytesReceived < length) {
         ssize_t bytesReceived = ::recv(m_sockfd, buffer + totalBytesReceived, length - totalBytesReceived, 0);
-        //logger->info(fmt::format("try to receive: ")); 
+        //读取失败
         if (bytesReceived < 0) {
+            //正常情况
             if (errno == EWOULDBLOCK || errno == EAGAIN || errno == EINTR) {
-                //此刻应该把协程挂起
+                //协程挂起，先执行别的协程
                 if(Scheduler::GetInstance()!=nullptr)
                     Coroutine::GetCurrentCoroutine()->yield();
                 continue;
             }
             return -1;
         }
+        //连接关闭
         if (bytesReceived == 0) {
             m_is_connected = false;
-            break;  // Connection closed
+            break;
         }
         totalBytesReceived += bytesReceived;
     }
@@ -242,7 +248,7 @@ ssize_t Socket::receive(Message& s) {
         return serializerPtr->size();
     uint32_t tmp;
     uint64_t size;
-    (*serializerPtr)>>tmp>>size>>size;//读出contenlenth
+    (*serializerPtr)>>tmp>>size>>size;//读出contentlenth
     //std::cout<<"receive"<<serializerPtr->size()<<std::endl;
     receive(*serializerPtr,size);
     
@@ -257,4 +263,4 @@ ssize_t Socket::receive(Serializer& s, size_t size) {
     s.write(str.data(),str.size());
     return s.size();
 }
-}
+}//namespace C_RPC

@@ -34,7 +34,7 @@ namespace C_RPC{
             }
             logger->info(fmt::format("raft_node {} init",m_id)); 
         });
-        //开启选举超时定时器,如果规定时间内没有收到心跳则转变为候选者
+        //开启选举超时定时器,如果规定时间内没有收到心跳或日志则转变为候选者
         m_electionTimer = Scheduler::GetTimer()->addTimeEvent(genRandom(),[this](){
             std::cout<<"start eletion"<<std::endl;
             m_raft_mutex.lock();
@@ -55,18 +55,16 @@ namespace C_RPC{
         //leader开启心跳计时器
         m_heartbeatTimer = Scheduler::GetTimer()->addTimeEvent(300,[this](){
             logger->info(fmt::format("HEART_BEAT to remote node")); 
-
             for(auto &node : m_remote_nodes){
-                //std::cout<<"try get m_heartbeatTimer"<<std::endl;
                 m_raft_mutex.lock();
-                //std::cout<<"try get m_heartbeatTimer end"<<std::endl;
+                //不是leader，不发出心跳
                 if (m_state != RaftState::Leader) {
                     m_raft_mutex.unlock();
                     return;
                 }
+                //初始化日志及RPC调用参数
                 Entry send_entry;
                 send_entry.op = "heartbeat";
-
                 AppendEntriesParams request{};
                 request.term = m_currentTerm;
                 request.leaderId = m_id;
@@ -74,12 +72,11 @@ namespace C_RPC{
                 request.prevLogIndex = m_nextIndexs[node.first] - 1;
                 request.prevLogTerm = m_raft_logger.getEntry(request.prevLogIndex).term;
                 request.entry = send_entry;
+                //进行PRC调用
                 Message heart_message(C_RPC::Message::RPC_REQUEST);
                 Serializer s;
-                //先写文函数名称
                 std::string f_name = "appendEntries";
-                s<<f_name;
-                s<<request;
+                s<<f_name<<request;
                 heart_message.encode(s);
                 if(!node.second->testAndreConnect(Address(m_nodes[node.first].m_ip,m_nodes[node.first].m_port))){
                     logger->info(fmt::format("heartbeat Failed to connect node{}",node.first));  
@@ -88,24 +85,19 @@ namespace C_RPC{
                 }
                 std::shared_ptr<CoroutineChannal<Message>> recv_channal = node.second->send(heart_message);
                 m_raft_mutex.unlock();
-
                 bool timeout = false;
                 std::shared_ptr<C_RPC::TimeEvent> timer = C_RPC::Scheduler::GetTimer()->addTimeEvent(100,[&timer,&recv_channal,&timeout](){
                     timeout = true;
                     recv_channal->close();
                 });
-
+                //接受PRC调用返回值
                 Message receive_message;
-                // 等待 response，Channel内部会挂起协程，如果有消息到达或者被关闭则会被唤醒
                 (*recv_channal) >> receive_message;
-
                 if(timer){
                     timer->cancel();
                 }
-
                 // 删除序列号与 Channel 的映射
                 node.second->earseResponseChannal(heart_message.seq);
-
                 if (timeout) {
                     logger->info(fmt::format("HEART_BEAT to remote node{} falied",node.first));  
                 }
@@ -130,45 +122,38 @@ namespace C_RPC{
             request.lastLogTerm = m_raft_logger.getLastTerm();
             logger->info(fmt::format("startElection :term{}, candidateId{}, lastLogIndex{}, lastLogTerm{}",
                             request.term,request.candidateId,request.lastLogIndex,request.lastLogTerm)); 
-
             m_votedFor = m_id;
             m_electionTimer->resetTime(genRandom());
             m_raft_mutex.unlock();
             // 统计投票结果，自己开始有一票
             std::shared_ptr<int64_t> grantedVotes = std::make_shared<int64_t>(1);
-
             for (auto node: m_remote_nodes) {
                 // 使用协程发起异步投票，不阻塞选举定时器，才能在选举超时后发起新的选举
                 Scheduler::GetInstance()->addTask([grantedVotes, request, node, this] {
+                    //rpc调用
                     Message message(C_RPC::Message::RPC_REQUEST);
                     Serializer s;
-                    //先写文函数名称
                     std::string f_name = "raftVote";
                     s<<f_name;
                     RaftVoteParams params = request;
                     s<<params;
                     message.encode(s);
-
                     if(!node.second->testAndreConnect(Address(m_nodes[node.first].m_ip,m_nodes[node.first].m_port))){
                         logger->info(fmt::format("raftVote Failed to connect node{}",node.first));  
                         return;
                     }
                     std::shared_ptr<CoroutineChannal<Message>> recv_channal = node.second->send(message);
-
                     bool timeout = false;
                     std::shared_ptr<C_RPC::TimeEvent> timer = C_RPC::Scheduler::GetTimer()->addTimeEvent(100,[&timer,&recv_channal,&timeout](){
                         timeout = true;
                         recv_channal->close();
                     });
-
+                    //接收rpc响应
                     Message receive_message;
-                    // 等待 response，Channel内部会挂起协程，如果有消息到达或者被关闭则会被唤醒
                     (*recv_channal) >> receive_message;
-
                     if(timer){
                         timer->cancel();
                     }
-
                     // 删除序列号与 Channel 的映射
                     node.second->earseResponseChannal(message.seq);
                     RaftVoteRets result;
@@ -179,12 +164,10 @@ namespace C_RPC{
                     else{
                         //解析函数名称加地址
                         std::shared_ptr<Serializer> s =receive_message.getSerializer();
-                        
                         while(!s->isReadEnd()){
                             (*s)>>result;
                         }
                     }
-
                     logger->info(fmt::format("ratfVote from node{} :term{}, voteGranted{}",
                             node.first,result.term,result.voteGranted)); 
 
@@ -201,11 +184,6 @@ namespace C_RPC{
                                 }
                                 m_state = RaftState::Leader;
                                 m_leaderId = m_id;
-                                // 成为领导者后，领导者并不知道其它节点的日志情况，因此与其它节点需要同步那么日志，领导者并不知道集群其他节点状态，
-                                // 因此他选择了不断尝试。nextIndex、matchIndex 分别用来保存其他节点的下一个待同步日志index、已匹配的日志index。
-                                // nextIndex初始化值为lastIndex+1，即领导者最后一个日志序号+1，因此其实这个日志序号是不存在的，显然领导者也不
-                                // 指望一次能够同步成功，而是拿出一个值来试探。matchIndex初始化值为0，这个很好理解，因为他还未与任何节点同步成功过，
-                                // 所以直接为0。
                                 for (auto node: m_remote_nodes) {
                                     //写入no-op日志后，才可以写入新的有效日志。
                                     //发送1个日志（op = "no-op")给协程
@@ -217,14 +195,13 @@ namespace C_RPC{
                                 entry.op = "no-op";
                                 entry.term = m_currentTerm;
                                 m_raft_logger.appendEntry(entry);
-                                
                                 logger->info(fmt::format("raftnode {} become leader",m_id)); 
                                 std::cout<<"raftnode "<<m_id<<" become leader"<<std::endl;
                                 // 成为领导者，发起一轮心跳
                                 //broadcastHeartbeat();
                                 // 开启心跳定时器
                                 m_heartbeatTimer->wake();
-                                //
+                                // 开始同步日志
                                 startReplicateLog();
                             }
                         }
@@ -258,24 +235,21 @@ namespace C_RPC{
     }
 
     void RaftNode::replicateLog(uint64_t nodeId) {
-        // 发送 rpc的时候一定不要持锁，否则很可能产生死锁。
         while(true){
             Coroutine::GetCurrentCoroutine()->yield();
-            //std::cout<<"try get replicateLog"<<std::endl;
             m_raft_mutex.lock();
-            //std::cout<<"try get replicateLog end"<<std::endl;
+            //不是leader，不能同步日志
             if (m_state != RaftState::Leader) {
                 m_raft_mutex.unlock();
                 return;
             }
-
             //获得要发送的日志，如果日志为空则continue；
             Entry send_entry = m_raft_logger.getEntry(m_nextIndexs[nodeId]);
             if(send_entry.op=="null"){
                 m_raft_mutex.unlock();
                 continue;
             }
-
+            //初始化RPC调用参数
             AppendEntriesParams request{};
             request.term = m_currentTerm;
             request.leaderId = m_id;
@@ -284,36 +258,29 @@ namespace C_RPC{
             request.prevLogTerm = m_raft_logger.getEntry(request.prevLogIndex).term;
             request.entry = send_entry;
             m_raft_mutex.unlock();
-
+            //发送RPC请求
             Message message(C_RPC::Message::RPC_REQUEST);
             Serializer s;
-            //先写文函数名称
             std::string f_name = "appendEntries";
             s<<f_name;
             s<<request;
             message.encode(s);
-
             if(!m_remote_nodes[nodeId]->testAndreConnect(Address(m_nodes[nodeId].m_ip,m_nodes[nodeId].m_port))){
                 logger->info(fmt::format("appendEntries Failed to connect node{}",nodeId));  
                 continue;
             }
-
             std::shared_ptr<CoroutineChannal<Message>> recv_channal = m_remote_nodes[nodeId]->send(message);
-
             bool timeout = false;
             std::shared_ptr<C_RPC::TimeEvent> timer = C_RPC::Scheduler::GetTimer()->addTimeEvent(100,[&timer,&recv_channal,&timeout](){
                 timeout = true;
                 recv_channal->close();
             });
-
+            //接受RPC返回结果
             Message receive_message;
-            // 等待 response，Channel内部会挂起协程，如果有消息到达或者被关闭则会被唤醒
             (*recv_channal) >> receive_message;
-
             if(timer){
                 timer->cancel();
             }
-
             // 删除序列号与 Channel 的映射
             m_remote_nodes[nodeId]->earseResponseChannal(message.seq);
             AppendEntriesRets result;
@@ -322,25 +289,20 @@ namespace C_RPC{
                 continue;
             }
             else{
-                //解析函数名称加地址
+                //解析结果
                 std::shared_ptr<Serializer> s =receive_message.getSerializer();
-                
                 while(!s->isReadEnd()){
                     (*s)>>result;
                 }
             }
-
-
             logger->info(fmt::format("appendEntries from node{} :success{}, term{}",
                             nodeId,result.success,result.term)); 
-
             m_raft_mutex.lock();
             if (m_state != RaftState::Leader) {
                 m_raft_mutex.unlock();
                 return;
             }
-
-            // 如果因为网络原因集群选举出新的leader则自己变成follower
+            // 集群选举出新的leader，自己变成follower
             if (result.term > m_currentTerm) {
                 // 成为follower停止心跳定时器
                 if (m_heartbeatTimer && m_state == RaftState::Leader) {
@@ -366,17 +328,13 @@ namespace C_RPC{
                 m_raft_mutex.unlock();
                 return;
             }
-
             // 日志追加成功，则更新 m_nextIndex 和 m_matchIndex
             m_nextIndexs[nodeId]++;
             m_matchIndexs[nodeId] = m_nextIndexs[nodeId] - 1;
-
             uint64_t last_index = m_matchIndexs[nodeId];
-
             // 计算副本数目大于节点数量的一半才提交一个当前任期内的日志
             uint64_t vote = 0;
             for (size_t i = 0; i<m_nodes.size();i++) {
-                std::cout<<"check commit with node"<<i<<std::endl;
                 if(i == m_id){
                     ++vote;
                 }
@@ -384,7 +342,6 @@ namespace C_RPC{
                     ++vote;
                 }
                 // 假设存在 N 满足N > commitIndex，使得大多数的 matchIndex[i] ≥ N以及log[N].term == currentTerm 成立，
-                // 则令 commitIndex = N（5.3 和 5.4 节）
                 if (vote >= ((uint64_t)m_nodes.size() + 1) / 2) {
                     // 只有领导人当前任期里的日志条目可以被提交
                     //如果这条日志的大多数节点已经同步，那么尝试更新logger的commitindex（如果其原来的小的话），使得它可以被应用
@@ -401,19 +358,16 @@ namespace C_RPC{
 
     
     RaftVoteRets RaftNode::raftVote(RaftVoteParams params){
-        //std::cout<<"try get raftVote end"<<std::endl;
         m_raft_mutex.lock();
-        //std::cout<<"try get raftVote end"<<std::endl;
         logger->info(fmt::format("raftvote params:term{}, candidateId{}, lastLogIndex{}, lastLogTerm{}",params.term,params.candidateId,params.lastLogIndex,params.lastLogTerm)); 
         RaftVoteRets rets;
-        // 拒绝给任期小于自己的候选人投票
-        if (params.term <= m_currentTerm ||(params.term == m_currentTerm && m_votedFor != params.candidateId )) {
+        // 拒绝给任期小于自己的候选人投票,同时一个任期内只能投一票
+        if (params.term < m_currentTerm ||(params.term == m_currentTerm && m_votedFor != params.candidateId )) {
             rets.term = m_currentTerm;
             rets.voteGranted = false;
             m_raft_mutex.unlock();
             return rets;
         }
-
         // 任期比自己大，变成追随者
         if (params.term > m_currentTerm) {
             // 成为follower停止心跳定时器
@@ -452,7 +406,6 @@ namespace C_RPC{
         logger->info(fmt::format("appendEntries params:term{}, leaderId{}, prevLogIndex{}, prevLogTerm{}, op{}, leaderCommit{}",
                  params.term,params.leaderId,params.prevLogIndex,params.prevLogTerm,params.entry.op,params.leaderCommit)); 
         AppendEntriesRets rets;
-        
         // 拒绝任期小于自己的 leader 的日志复制请求
         if (params.term < m_currentTerm) {
             rets.term = m_currentTerm;
@@ -460,7 +413,6 @@ namespace C_RPC{
             m_raft_mutex.unlock();
             return rets;
         }
-
         // 对方任期大于自己或者自己为同一任期内败选的候选人则转变为 follower
         // 已经是该任期内的follower就不用变
         if (params.term > m_currentTerm ||
@@ -470,24 +422,19 @@ namespace C_RPC{
                 m_electionTimer->wake();
                 m_heartbeatTimer->stop();
             }
-
             m_state = RaftState::Follower;
             m_currentTerm = params.term;
             m_votedFor = -1;
             m_leaderId = params.leaderId;
         }
-
         //在不知道当前领导的情况下（领导人收到更高term的ack或者候选人收到更高term的拒绝ack，变成追随者），得知了当前领导
         if (m_leaderId < 0) {
             m_leaderId = params.leaderId;
         }
-
         // 自己为同一任期内的follower，更新选举定时器就行
         m_electionTimer->resetTime(genRandom());
-
         //更新commiindex
         m_raft_logger.setCommitIndex(std::min(params.leaderCommit,m_raft_logger.getLastIndex()));
-
         //心跳，直接返回
         if(params.entry.op=="heartbeat"){
             rets.term = m_currentTerm;
@@ -501,7 +448,6 @@ namespace C_RPC{
             rets.success = false;
             return rets;
         }
-
         rets.term = m_currentTerm;
         rets.success = true;
         m_raft_mutex.unlock();
